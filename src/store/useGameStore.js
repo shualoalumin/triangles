@@ -3,25 +3,35 @@ import { persist } from 'zustand/middleware';
 
 export const useGameStore = create(
   persist(
-    (set) => ({
+    (set, get) => ({
       // User State
       isPremium: false,
       stars: {}, // { levelId: starCount }
-      foundTriangles: {}, // { levelId: Set of found strings } -- persist doesn't handle Sets well, convert to Array if needed
+      foundShapes: {}, // { levelId: [shape1, shape2, ...] }
       
       // Game Progress
-      currentWorld: 1,
-      unlockedWorlds: [1], // 1, 2 are free
+      unlockedWorlds: [1, 2], // 1, 2 are free
       
       // Actions
       unlockPremium: () => set({ isPremium: true, unlockedWorlds: [1, 2, 3, 4, 5] }),
-      saveProgress: (levelId, trianglesCount, starCount) => set((state) => ({
-        stars: { ...state.stars, [levelId]: Math.max(state.stars[levelId] || 0, starCount) }
-      })),
-      resetProgress: () => set({ stars: {}, foundTriangles: {}, currentWorld: 1, unlockedWorlds: [1] }),
+      
+      addFoundShape: (worldId, shape) => set((state) => {
+        const currentFound = state.foundShapes[worldId] || [];
+        if (currentFound.includes(shape)) return state;
+        return {
+          foundShapes: {
+            ...state.foundShapes,
+            [worldId]: [...currentFound, shape]
+          }
+        };
+      }),
+      
+      getFoundShapes: (worldId) => get().foundShapes[worldId] || [],
+      
+      resetProgress: () => set({ stars: {}, foundShapes: {}, unlockedWorlds: [1, 2], isPremium: false }),
     }),
     {
-      name: 'geoquest-storage',
+      name: 'geoquest-storage-v2',
     }
   )
 );

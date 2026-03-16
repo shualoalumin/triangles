@@ -17,7 +17,7 @@ const worlds = [
     desc: '사각형과 직사각형을 찾아보세요!',
     gradient: 'linear-gradient(135deg, #185FA5 0%, #2B7BD4 40%, #85B7EB 100%)',
     glow: 'rgba(24,95,165,0.4)',
-    count: 'Coming Soon',
+    count: '9 Quadrilaterals',
   },
   {
     id: 3, emoji: '⭐', name: '다각별', enName: 'Polygon Star',
@@ -47,38 +47,44 @@ const worlds = [
 
 const containerVariants = {
   hidden: {},
-  show: { transition: { staggerChildren: 0.1 } }
+  show: { transition: { staggerChildren: 0.12 } }
 };
 
 const cardVariants = {
-  hidden: { opacity: 0, y: 30, scale: 0.95 },
-  show: { opacity: 1, y: 0, scale: 1, transition: { type: 'spring', damping: 20, stiffness: 200 } }
+  hidden: { opacity: 0, y: 30, scale: 0.9 },
+  show: { opacity: 1, y: 0, scale: 1, transition: { type: 'spring', damping: 18, stiffness: 150 } }
 };
 
 const WorldMap = ({ onSelectWorld }) => {
-  const { t, i18n } = useTranslation();
+  const { i18n, t } = useTranslation();
   const { isPremium, unlockedWorlds } = useGameStore();
   const isKo = i18n.language === 'ko';
 
   return (
-    <div style={{ paddingTop: 8 }}>
+    <div style={{ paddingTop: 16 }}>
       {/* Hero Section */}
-      <div style={{ textAlign: 'center', marginBottom: 40 }}>
+      <div style={{ textAlign: 'center', marginBottom: 48 }}>
         <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.8, ease: "easeOut" }}
         >
-          <div style={{ fontSize: 52, marginBottom: 8 }} className="animate-float">🔺</div>
+          <motion.div 
+            animate={{ y: [0, -10, 0] }}
+            transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+            style={{ fontSize: 64, marginBottom: 12 }}
+          >
+            🧩
+          </motion.div>
           <h2 style={{
-            fontSize: 32, fontWeight: 900, marginBottom: 8,
-            background: 'linear-gradient(135deg, #F0EEF6, #8B8FA8)',
+            fontSize: 42, fontStyle: 'normal', fontWeight: 900, marginBottom: 12, letterSpacing: '-1px',
+            background: 'linear-gradient(135deg, #FFFFFF, #AFA9EC)',
             WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
           }}>
-            {isKo ? '도형 속 보물을 찾아라!' : 'Discover Hidden Treasures!'}
+            {isKo ? '세상의 모든 도형 탐험' : 'Explore the World of Shapes'}
           </h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 16, margin: 0 }}>
-            {isKo ? '월드를 선택하고 모험을 시작하세요' : 'Choose a world and start your adventure'}
+          <p style={{ color: 'var(--text-secondary)', fontSize: 18, fontWeight: 500, margin: 0 }}>
+            {isKo ? '보물을 찾아 떠나는 기하학 모험!' : 'A geometry adventure to find hidden treasures!'}
           </p>
         </motion.div>
       </div>
@@ -88,7 +94,7 @@ const WorldMap = ({ onSelectWorld }) => {
         variants={containerVariants}
         initial="hidden"
         animate="show"
-        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 20 }}
+        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 24 }}
       >
         {worlds.map((world) => {
           const isUnlocked = unlockedWorlds.includes(world.id) || isPremium;
@@ -96,22 +102,23 @@ const WorldMap = ({ onSelectWorld }) => {
             <motion.div
               key={world.id}
               variants={cardVariants}
-              whileHover={isUnlocked ? { y: -6, scale: 1.02 } : {}}
+              whileHover={isUnlocked ? { y: -8, scale: 1.03, boxShadow: `0 20px 50px ${world.glow}` } : {}}
               whileTap={isUnlocked ? { scale: 0.97 } : {}}
               onClick={() => isUnlocked && onSelectWorld(world.id)}
               className={`world-card ${!isUnlocked ? 'locked' : ''}`}
               style={{
                 background: world.gradient,
-                padding: 28,
-                minHeight: 180,
+                padding: 32,
+                minHeight: 220,
                 display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-                boxShadow: isUnlocked ? `0 12px 40px ${world.glow}` : 'none',
+                boxShadow: isUnlocked ? `0 10px 30px ${world.glow}` : 'none',
               }}
             >
               {/* Card Number Watermark */}
               <div style={{
-                position: 'absolute', top: 16, right: 20,
-                fontSize: 72, fontWeight: 900, opacity: 0.12, color: '#fff', lineHeight: 1,
+                position: 'absolute', top: 20, right: 24,
+                fontSize: 84, fontWeight: 900, opacity: 0.15, color: '#fff', lineHeight: 1,
+                fontFamily: 'Outfit'
               }}>
                 {world.id}
               </div>
@@ -120,42 +127,47 @@ const WorldMap = ({ onSelectWorld }) => {
               {!isUnlocked && (
                 <div style={{
                   position: 'absolute', inset: 0,
-                  background: 'rgba(0,0,0,0.55)',
+                  background: 'rgba(0,0,0,0.6)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  borderRadius: 'inherit', backdropFilter: 'blur(2px)',
+                  borderRadius: 'inherit', backdropFilter: 'blur(3px)',
+                  zIndex: 10
                 }}>
-                  <span style={{
-                    background: 'rgba(255,255,255,0.12)',
-                    color: '#fff', padding: '10px 22px',
-                    borderRadius: 100, fontSize: 14, fontWeight: 700,
-                    border: '1px solid rgba(255,255,255,0.15)',
-                    display: 'flex', alignItems: 'center', gap: 8,
-                  }}>
+                  <motion.span 
+                    whileHover={{ scale: 1.1 }}
+                    style={{
+                      background: 'rgba(255,255,255,0.15)',
+                      color: '#fff', padding: '12px 24px',
+                      borderRadius: 100, fontSize: 14, fontWeight: 800,
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      boxShadow: '0 8px 16px rgba(0,0,0,0.3)'
+                    }}
+                  >
                     🔒 {t('level_locked')}
-                  </span>
+                  </motion.span>
                 </div>
               )}
 
               {/* Content */}
               <div style={{ position: 'relative', zIndex: 2 }}>
-                <span style={{ fontSize: 36 }}>{world.emoji}</span>
+                <span style={{ fontSize: 48 }}>{world.emoji}</span>
               </div>
               <div style={{ position: 'relative', zIndex: 2, color: '#fff' }}>
-                <h3 style={{ fontSize: 22, fontWeight: 800, margin: '8px 0 4px' }}>
+                <h3 style={{ fontSize: 26, fontWeight: 900, margin: '12px 0 6px', letterSpacing: '-0.5px' }}>
                   {isKo ? world.name : world.enName}
                 </h3>
-                <p style={{ fontSize: 14, opacity: 0.85, margin: 0 }}>
+                <p style={{ fontSize: 15, opacity: 0.9, fontWeight: 500, margin: 0, lineHeight: 1.4 }}>
                   {isKo ? world.desc : world.enDesc}
                 </p>
-                <span style={{
-                  display: 'inline-block', marginTop: 10,
-                  fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
-                  letterSpacing: 1.2, opacity: 0.7,
-                  background: 'rgba(255,255,255,0.15)', padding: '4px 12px',
-                  borderRadius: 8,
+                <div style={{
+                  display: 'inline-block', marginTop: 16,
+                  fontSize: 12, fontWeight: 800, textTransform: 'uppercase',
+                  letterSpacing: 1.5, opacity: 0.8,
+                  background: 'rgba(255,255,255,0.2)', padding: '6px 14px',
+                  borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)'
                 }}>
                   {world.count}
-                </span>
+                </div>
               </div>
             </motion.div>
           );

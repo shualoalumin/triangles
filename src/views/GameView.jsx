@@ -1,96 +1,122 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { motion, AnimatePresence } from "framer-motion";
+import { Howl } from 'howler';
+import { PUZZLES } from "../data/puzzles";
+import { useGameStore } from "../store/useGameStore";
 
-/* ── Triangle data ── */
-const ALL_TRIANGLES = [
-  "ADE","ADF","BDF","BDG","CDE","CDG","AEX","CEX","AFY","BFY","BGZ","CGZ",
-  "ABD","ACD","BCD","ACX","ADX","CDX","ABY","ADY","BDY","BCZ","BDZ","CDZ",
-  "ABE","ABG","ACF","ACG","BCE","BCF",
-  "ABX","BCX","DXY","DXZ","ACY","BCY","DYZ","ABZ","ACZ",
-  "ABC","BXY","CXY","AXZ","BXZ","AYZ","CYZ",
-  "XYZ"
-];
-
-const SIZE_GROUPS = {
-  1:  { label: "1칸", enLabel: "Tiny",   color: "#5BDB81", tris: ["ADE","ADF","BDF","BDG","CDE","CDG","AEX","CEX","AFY","BFY","BGZ","CGZ"] },
-  2:  { label: "2칸", enLabel: "Small",  color: "#4FE0D9", tris: ["ABD","ACD","BCD","ACX","ADX","CDX","ABY","ADY","BDY","BCZ","BDZ","CDZ"] },
-  3:  { label: "3칸", enLabel: "Medium", color: "#7C5CFC", tris: ["ABE","ABG","ACF","ACG","BCE","BCF"] },
-  4:  { label: "4칸", enLabel: "Large",  color: "#FF8F50", tris: ["ABX","BCX","DXY","DXZ","ACY","BCY","DYZ","ABZ","ACZ"] },
-  6:  { label: "6칸", enLabel: "Huge",   color: "#FF6BB5", tris: ["ABC","BXY","CXY","AXZ","BXZ","AYZ","CYZ"] },
-  12: { label: "전체", enLabel: "Max",    color: "#FFD166", tris: ["XYZ"] },
+/* ── SFX Assets ── */
+const SFX = {
+  success: new Howl({ src: ['https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3'], volume: 0.4 }),
+  error:   new Howl({ src: ['https://assets.mixkit.co/active_storage/sfx/2013/2013-preview.mp3'], volume: 0.2 }),
+  complete: new Howl({ src: ['https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3'], volume: 0.6 }),
+  pop:     new Howl({ src: ['https://assets.mixkit.co/active_storage/sfx/2019/2019-preview.mp3'], volume: 0.3 }),
 };
 
-const LINES = [["X","A","Y"],["X","C","Z"],["Y","B","Z"],["A","E","C"],["X","E","D","B"],["Y","F","D","C"],["A","D","G","Z"],["A","F","B"],["C","G","B"]];
-const SC = 120;
-const RP = { X:[0,2], Y:[-2,0], Z:[2,0], A:[-1,1], B:[0,0], C:[1,1], D:[0,2/3], E:[0,1], F:[-0.5,0.5], G:[0.5,0.5] };
-const HR = 28;
-
 function normalize(pts) { return [...pts].sort().join(""); }
-function onLine(a, b) { return LINES.some(l => l.includes(a) && l.includes(b)); }
-function collinear(a, b, c) {
-  const [x1,y1] = RP[a], [x2,y2] = RP[b], [x3,y3] = RP[c];
+
+function collinear(a, b, c, points) {
+  const [x1,y1] = points[a], [x2,y2] = points[b], [x3,y3] = points[c];
   return Math.abs((x2 - x1) * (y3 - y1) - (x3 - x1) * (y2 - y1)) < 0.001;
 }
-function sizeOf(n) {
-  for (const [s, g] of Object.entries(SIZE_GROUPS)) if (g.tris.includes(n)) return +s;
-  return 0;
-}
 
-/* ── Confetti Effect ── */
+/* ── Confetti Component ── */
 function Confetti({ show }) {
   if (!show) return null;
   const colors = ['#7C5CFC','#FF6BB5','#4FE0D9','#FFD166','#FF8F50','#5BDB81'];
   return (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 10 }}>
-      {Array.from({ length: 24 }).map((_, i) => (
-        <div key={i} style={{
-          position: 'absolute',
-          left: `${Math.random() * 100}%`,
-          top: `${Math.random() * 40}%`,
-          width: 8 + Math.random() * 6,
-          height: 8 + Math.random() * 6,
-          borderRadius: Math.random() > 0.5 ? '50%' : '2px',
-          background: colors[i % colors.length],
-          animation: `confetti-fall ${0.8 + Math.random() * 0.6}s ease-out forwards`,
-          animationDelay: `${Math.random() * 0.3}s`,
-          opacity: 0.9,
-        }} />
+      {Array.from({ length: 40 }).map((_, i) => (
+        <motion.div 
+          key={i}
+          initial={{ y: -20, x: `${Math.random() * 100}%`, opacity: 1, rotate: 0 }}
+          animate={{ y: 500, rotate: 360, opacity: 0 }}
+          transition={{ duration: 1.5 + Math.random(), ease: "easeOut" }}
+          style={{
+            position: 'absolute',
+            width: 8 + Math.random() * 8,
+            height: 8 + Math.random() * 8,
+            borderRadius: Math.random() > 0.5 ? '50%' : '2px',
+            background: colors[i % colors.length],
+            zIndex: 10
+          }} 
+        />
       ))}
     </div>
   );
 }
 
-export default function GameView({ onBack }) {
+/* ── Win Modal ── */
+function WinModal({ world, onClose }) {
+  const { i18n } = useTranslation();
+  const isKo = i18n.language === 'ko';
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(10px)'
+      }}
+    >
+      <motion.div 
+        initial={{ scale: 0.7, opacity: 0, y: 50 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        style={{
+          background: 'var(--bg-card)', padding: 48, borderRadius: 32, textAlign: 'center', maxWidth: 400, width: '90%',
+          border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 30px 60px rgba(0,0,0,0.5)'
+        }}
+      >
+        <div style={{ fontSize: 80, marginBottom: 16 }} className="animate-float">🏆</div>
+        <h2 style={{ fontSize: 32, fontWeight: 900, marginBottom: 8, color: '#FFD166' }}>
+          {isKo ? '미션 클리어!' : 'Mission Clear!'}
+        </h2>
+        <p style={{ color: 'var(--text-secondary)', marginBottom: 32 }}>
+          {isKo ? `${world.name}의 모든 보물을 찾았습니다!` : `You found all treasures in ${world.name}!`}
+        </p>
+        <button className="btn-primary w-full" onClick={onClose}>
+          {isKo ? '월드맵으로 돌아가기' : 'Back to World Map'}
+        </button>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+export default function GameView({ onBack, worldId = 1 }) {
   const { t, i18n } = useTranslation();
   const isKo = i18n.language === 'ko';
-  const [found, setFound] = useState(new Set());
+  const { addFoundShape, foundShapes } = useGameStore();
+  
+  const puzzle = useMemo(() => PUZZLES[worldId] || PUZZLES[1], [worldId]);
+  const currentFound = useMemo(() => new Set(foundShapes[worldId] || []), [foundShapes, worldId]);
+  
   const [msg, setMsg] = useState({ text: "", type: "idle" });
   const [flash, setFlash] = useState(null);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [isWin, setIsWin] = useState(false);
 
   const isDragging = useRef(false);
   const dragTrail = useRef([]);
   const svgR = useRef(null);
   const clrR = useRef(null);
-  const fRef = useRef(found);
 
-  useEffect(() => { setMsg({ text: t("msg_idle"), type: "idle" }); }, [t]);
-  useEffect(() => { fRef.current = found; }, [found]);
+  useEffect(() => { 
+    setMsg({ text: t("msg_idle"), type: "idle" });
+    setIsWin(currentFound.size === puzzle.solutions.length && puzzle.solutions.length > 0);
+  }, [t, worldId, currentFound.size, puzzle.solutions.length]);
 
-  /* ── Derived geometry (stable) ── */
-  const OX = 300, OY = 210;
+  const OX = 300, OY = 210, SC = 140;
   const PT = useMemo(() => {
     const p = {};
-    for (const [k, v] of Object.entries(RP)) p[k] = [OX + v[0] * SC, OY - v[1] * SC];
+    for (const [k, v] of Object.entries(puzzle.points)) p[k] = [OX + v[0] * SC, OY - v[1] * SC];
     return p;
-  }, []);
+  }, [puzzle, SC]);
+
   const PN = useMemo(() => Object.keys(PT), [PT]);
   const SEG = useMemo(() => {
     const s = [];
-    LINES.forEach(l => { for (let i = 0; i < l.length - 1; i++) s.push([l[i], l[i + 1]]); });
+    puzzle.lines.forEach(l => { for (let i = 0; i < l.length - 1; i++) s.push([l[i], l[i + 1]]); });
     return s;
-  }, []);
+  }, [puzzle]);
 
   const hitTest = useCallback((cx, cy) => {
     const svg = svgR.current;
@@ -98,7 +124,7 @@ export default function GameView({ onBack }) {
     const r = svg.getBoundingClientRect();
     const sx = (cx - r.left) * (600 / r.width);
     const sy = (cy - r.top) * (420 / r.height);
-    let best = null, bd = HR * HR;
+    let best = null, bd = 35 * 35;
     for (const n of PN) {
       const [px, py] = PT[n];
       const d = (sx - px) ** 2 + (sy - py) ** 2;
@@ -110,155 +136,209 @@ export default function GameView({ onBack }) {
   const doFlash = (tri, type, text) => {
     setFlash(tri);
     setMsg({ text, type });
-    if (type === 'ok') { setShowConfetti(true); setTimeout(() => setShowConfetti(false), 1000); }
+    
+    if (type === 'ok') {
+      SFX.success.play();
+      setShowConfetti(true);
+      setTimeout(() => setShowConfetti(false), 1500);
+    } else if (type === 'error') {
+      SFX.error.play();
+    } else if (type === 'done') {
+      SFX.complete.play();
+      setIsWin(true);
+    }
+
     if (clrR.current) clearTimeout(clrR.current);
     clrR.current = setTimeout(() => {
       setFlash(null);
       setMsg(p => p.type === "done" ? p : { text: t("msg_idle"), type: "idle" });
-    }, 800);
+    }, 1200);
   };
 
+  const onLine = (a, b) => puzzle.lines.some(l => l.includes(a) && l.includes(b));
+
   const submit = useCallback((pts) => {
-    if (pts.length !== 3) return;
     const k = normalize(pts);
-    if (collinear(pts[0], pts[1], pts[2])) { doFlash(k, "error", t("msg_collinear")); return; }
-    if (!onLine(pts[0], pts[1]) || !onLine(pts[1], pts[2]) || !onLine(pts[0], pts[2])) { doFlash(k, "error", t("msg_invalid")); return; }
-    if (!ALL_TRIANGLES.includes(k)) { doFlash(k, "error", t("msg_invalid")); return; }
-    const nf = new Set(fRef.current);
-    if (nf.has(k)) { doFlash(k, "dup", isKo ? "이미 찾았어요! 😅" : "Already found! 😅"); return; }
-    nf.add(k);
-    setFound(nf);
-    const sl = SIZE_GROUPS[sizeOf(k)]?.label || "";
-    if (nf.size === ALL_TRIANGLES.length) doFlash(k, "done", t("msg_done"));
-    else doFlash(k, "ok", `✨ △${k} (${sl}) — ${nf.size}/${ALL_TRIANGLES.length}`);
-  }, [t, isKo]);
+    const targetLen = puzzle.type === 'triangle' ? 3 : 4;
+    
+    if (pts.length !== targetLen) return;
+    
+    // Geometry check
+    if (puzzle.type === 'triangle') {
+      if (collinear(pts[0], pts[1], pts[2], puzzle.points)) { doFlash(k, "error", t("msg_collinear")); return; }
+      for (let i = 0; i < 3; i++) {
+        if (!onLine(pts[i], pts[(i+1)%3])) { doFlash(k, "error", t("msg_invalid")); return; }
+      }
+    } else {
+      for (let i = 0; i < 4; i++) {
+        if (!onLine(pts[i], pts[(i+1)%4])) { doFlash(k, "error", t("msg_invalid")); return; }
+      }
+    }
+
+    if (!puzzle.solutions.includes(k)) { doFlash(k, "error", t("msg_invalid")); return; }
+    if (currentFound.has(k)) { doFlash(k, "dup", isKo ? "이미 발견했어요! ✨" : "Already discovered! ✨"); return; }
+    
+    addFoundShape(worldId, k);
+    
+    let sl = "";
+    for (const sk in puzzle.sizeGroups) {
+      if (puzzle.sizeGroups[sk].tris.includes(k)) {
+        sl = isKo ? puzzle.sizeGroups[sk].label : puzzle.sizeGroups[sk].enLabel;
+        break;
+      }
+    }
+
+    if (currentFound.size + 1 === puzzle.solutions.length) doFlash(k, "done", t("msg_done"));
+    else doFlash(k, "ok", `🎨 ${puzzle.type === 'triangle' ? '△' : '□'}${k} (${sl}) — ${currentFound.size + 1}/${puzzle.solutions.length}`);
+  }, [t, isKo, puzzle, currentFound, addFoundShape, worldId]);
 
   function simplifyPath(arr) {
     const distinct = [];
     for (const p of arr) { if (distinct[distinct.length - 1] !== p) distinct.push(p); }
-    if (distinct.length < 3) return distinct;
+    const targetLength = puzzle.type === 'triangle' ? 3 : 4;
+    if (distinct.length < targetLength) return distinct;
     let res = [...distinct], changed = true;
-    while (changed && res.length > 2) {
+    while (changed && res.length > targetLength) {
       changed = false;
       for (let i = 1; i < res.length - 1; i++) {
-        if (collinear(res[i - 1], res[i], res[i + 1])) { res.splice(i, 1); changed = true; break; }
+        if (collinear(res[i - 1], res[i], res[i + 1], puzzle.points)) { res.splice(i, 1); changed = true; break; }
       }
     }
-    if (res.length > 2 && res[0] === res[res.length - 1]) res.pop();
+    if (res.length > targetLength && res[0] === res[res.length - 1]) res.pop();
     return res;
   }
 
   const onPointerDown = (e) => {
     const p = hitTest(e.clientX, e.clientY);
     if (!p) return;
+    SFX.pop.play();
     e.currentTarget.setPointerCapture(e.pointerId);
     isDragging.current = true;
     dragTrail.current = [p];
   };
+
   const onPointerMove = (e) => {
     if (!isDragging.current) return;
     const p = hitTest(e.clientX, e.clientY);
     if (!p || dragTrail.current[dragTrail.current.length - 1] === p) return;
+    SFX.pop.play();
     dragTrail.current.push(p);
   };
+
   const onPointerUp = () => {
     if (!isDragging.current) return;
     isDragging.current = false;
     const trail = dragTrail.current;
     dragTrail.current = [];
     const simple = simplifyPath(trail);
-    if (simple.length === 3) submit(simple);
+    const targetLen = puzzle.type === 'triangle' ? 3 : 4;
+    if (simple.length === targetLen) submit(simple);
     else if (simple.length > 0) {
-      setMsg({ text: `${simple.join(" → ")} ... ${isKo ? `${3 - simple.length}개 더!` : `${3 - simple.length} more!`}`, type: "idle" });
+      const remaining = targetLen - simple.length;
+      setMsg({ text: `${simple.join(" → ")} ... ${isKo ? `${remaining}개 더!` : `${remaining} more!`}`, type: "idle" });
     }
   };
 
-  const progress = (found.size / ALL_TRIANGLES.length) * 100;
-  const triPath = (k) => {
-    const [a, b, c] = [...k];
-    return `M${PT[a][0]},${PT[a][1]}L${PT[b][0]},${PT[b][1]}L${PT[c][0]},${PT[c][1]}Z`;
+  const progress = (currentFound.size / puzzle.solutions.length) * 100;
+  
+  const shapePath = (k) => {
+    const pts = [...k];
+    let d = `M${PT[pts[0]][0]},${PT[pts[0]][1]}`;
+    for (let i = 1; i < pts.length; i++) d += `L${PT[pts[i]][0]},${PT[pts[i]][1]}`;
+    return d + 'Z';
   };
 
   const msgTheme = {
-    ok:    { bg: 'rgba(91,219,129,0.15)', border: 'rgba(91,219,129,0.3)', c: '#5BDB81', icon: '✅' },
+    ok:    { bg: 'rgba(91,219,129,0.15)', border: 'rgba(91,219,129,0.3)', c: '#5BDB81', icon: '✨' },
     error: { bg: 'rgba(255,107,107,0.15)', border: 'rgba(255,107,107,0.3)', c: '#FF6B6B', icon: '❌' },
     dup:   { bg: 'rgba(255,209,102,0.15)', border: 'rgba(255,209,102,0.3)', c: '#FFD166', icon: '🔄' },
-    done:  { bg: 'rgba(124,92,252,0.15)', border: 'rgba(124,92,252,0.3)', c: '#B8A8FF', icon: '🎉' },
-    idle:  { bg: 'rgba(255,255,255,0.05)', border: 'rgba(255,255,255,0.08)', c: '#8B8FA8', icon: '👆' },
+    done:  { bg: 'rgba(124,92,252,0.15)', border: 'rgba(124,92,252,0.3)', c: '#B8A8FF', icon: '🏆' },
+    idle:  { bg: 'rgba(255,255,255,0.03)', border: 'rgba(255,255,255,0.06)', c: '#8B8FA8', icon: '🖱️' },
   };
   const mc = msgTheme[msg.type] || msgTheme.idle;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4 }}
-      style={{ display: 'flex', flexDirection: 'column', gap: 20 }}
-    >
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {isWin && <WinModal world={puzzle} onClose={onBack} />}
+      
       {/* Top Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <button className="btn-ghost" onClick={onBack} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          ← {t("back_to_map")}
-        </button>
+        <motion.button 
+          whileHover={{ x: -2 }} whileTap={{ scale: 0.95 }}
+          className="btn-ghost" onClick={onBack} style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+        >
+          🏘️ {isKo ? '메인으로' : 'Home'}
+        </motion.button>
         <div style={{
-          background: 'rgba(124,92,252,0.12)', border: '1px solid rgba(124,92,252,0.25)',
-          borderRadius: 12, padding: '6px 16px',
-          fontSize: 14, fontWeight: 800, color: '#B8A8FF',
+          background: 'rgba(124,92,252,0.12)', border: '1px solid rgba(124,92,252,0.2)',
+          borderRadius: 16, padding: '8px 20px', fontSize: 16, fontWeight: 900, color: '#B8A8FF'
         }}>
-          🔺 {found.size} / {ALL_TRIANGLES.length}
+           {puzzle.type === 'triangle' ? '🔺' : '⏹️'} {currentFound.size} / {puzzle.solutions.length}
         </div>
       </div>
 
       {/* Progress */}
-      <div className="progress-bar">
+      <div className="progress-bar" style={{ height: 12 }}>
         <motion.div
-          className="progress-fill"
-          initial={{ width: 0 }}
-          animate={{ width: `${progress}%` }}
-          transition={{ type: 'spring', damping: 25 }}
+           className="progress-fill"
+           initial={{ width: 0 }}
+           animate={{ width: `${progress}%` }}
+           transition={{ type: 'spring', damping: 25, stiffness: 120 }}
         />
       </div>
 
       {/* Game Board */}
-      <div className="game-board" style={{ position: 'relative', touchAction: 'none' }}>
+      <div className="game-board animate-bounce-in" style={{ position: 'relative', touchAction: 'none' }}>
         <Confetti show={showConfetti} />
         <svg ref={svgR} viewBox="0 0 600 420" style={{ width: '100%', height: 'auto', cursor: 'crosshair', display: 'block' }}
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
 
-          {/* Grid glow background */}
           <defs>
-            <radialGradient id="boardGlow" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="rgba(124,92,252,0.08)" />
+            <radialGradient id="boardGlow" cx="50%" cy="50%" r="60%">
+              <stop offset="0%" stopColor="rgba(124,92,252,0.15)" />
               <stop offset="100%" stopColor="transparent" />
             </radialGradient>
           </defs>
           <rect width="600" height="420" fill="url(#boardGlow)" />
 
-          {/* Found triangle fills */}
-          {[...found].map(tri => {
-            const sz = sizeOf(tri);
-            const col = SIZE_GROUPS[sz]?.color || '#7C5CFC';
-            return <path key={tri} d={triPath(tri)} fill={col} opacity={0.12} />;
+          {/* Found shapes */}
+          {[...currentFound].map(k => {
+            let col = '#7C5CFC';
+            for (const sz in puzzle.sizeGroups) {
+               if (puzzle.sizeGroups[sz].tris.includes(k)) {
+                 col = puzzle.sizeGroups[sz]?.color || col;
+                 break;
+               }
+            }
+            return <path key={k} d={shapePath(k)} fill={col} opacity={0.15} />;
           })}
 
           {/* Lines */}
           {SEG.map(([a, b], i) => (
             <line key={i} x1={PT[a][0]} y1={PT[a][1]} x2={PT[b][0]} y2={PT[b][1]}
-              stroke="rgba(255,255,255,0.12)" strokeWidth={1.5} />
+              stroke="rgba(255,255,255,0.1)" strokeWidth={2} strokeLinecap="round" />
           ))}
 
-          {/* Flash highlight */}
+          {/* Drag Trail */}
+          {isDragging.current && dragTrail.current.length > 1 && (
+             <path 
+               d={`M${dragTrail.current.map(p => `${PT[p][0]},${PT[p][1]}`).join('L')}`}
+               fill="none" stroke="#4FE0D9" strokeWidth={3} strokeDasharray="6,6" opacity={0.5}
+             />
+          )}
+
+          {/* Flash */}
           <AnimatePresence>
             {flash && (
               <motion.path
                 key="flash"
-                d={triPath(flash)}
+                d={shapePath(flash)}
                 fill={mc.c}
-                opacity={0.35}
+                opacity={0.4}
                 stroke={mc.c}
-                strokeWidth={2.5}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 0.35 }}
+                strokeWidth={3}
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 0.4, scale: 1 }}
                 exit={{ opacity: 0 }}
               />
             )}
@@ -267,56 +347,57 @@ export default function GameView({ onBack }) {
           {/* Points */}
           {PN.map(name => {
             const [cx, cy] = PT[name];
+            const active = dragTrail.current.includes(name);
             return (
-              <g key={name}>
-                <circle cx={cx} cy={cy} r={8} fill="var(--bg-primary)" stroke="rgba(255,255,255,0.2)" strokeWidth={2} />
-                <circle cx={cx} cy={cy} r={4} fill="#7C5CFC" opacity={0.6} />
-                <text x={cx} y={cy - 14} textAnchor="middle" fontSize={12} fontWeight="800"
-                  fill="rgba(255,255,255,0.5)" fontFamily="Outfit, sans-serif">{name}</text>
+              <g key={name} style={{ cursor: 'pointer' }}>
+                <circle cx={cx} cy={cy} r={active ? 12 : 8} fill="var(--bg-primary)" stroke={active ? "#4FE0D9" : "rgba(255,255,255,0.2)"} strokeWidth={2} />
+                <circle cx={cx} cy={cy} r={active ? 6 : 4} fill={active ? "#4FE0D9" : "#7C5CFC"} />
+                <text x={cx} y={cy - 16} textAnchor="middle" fontSize={13} fontWeight="900" fill={active ? "#4FE0D9" : "rgba(255,255,255,0.4)"} fontFamily="Outfit">{name}</text>
               </g>
             );
           })}
         </svg>
       </div>
 
-      {/* Message */}
-      <div style={{ textAlign: 'center' }}>
+      {/* Message Pill */}
+      <div style={{ textAlign: 'center', minHeight: 48 }}>
         <AnimatePresence mode="wait">
           <motion.span
             key={msg.text}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
+            initial={{ opacity: 0, scale: 0.9, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 1.1 }}
             className="msg-pill"
-            style={{
-              background: mc.bg,
-              border: `1px solid ${mc.border}`,
-              color: mc.c,
-            }}
+            style={{ background: mc.bg, border: `2px solid ${mc.border}`, color: mc.c }}
           >
-            {mc.icon} {msg.text}
+            <span style={{marginRight: 10}}>{mc.icon}</span> {msg.text}
           </motion.span>
         </AnimatePresence>
       </div>
 
-      {/* Found Triangles by Size Group */}
-      <div style={{ marginTop: 16 }}>
-        {Object.entries(SIZE_GROUPS).map(([size, group]) => {
-          const foundInGroup = group.tris.filter(tri => found.has(tri));
+      {/* Legend */}
+      <div style={{ marginTop: 16, padding: 24, borderRadius: 24 }} className="glass">
+        <h4 style={{ margin: '0 0 20px 0', fontSize: 18, fontWeight: 800, color: 'var(--text-secondary)' }}>
+           📋 {isKo ? '찾아야 할 보물들' : 'Treasures to discover'}
+        </h4>
+        
+        {Object.entries(puzzle.sizeGroups).map(([size, group]) => {
+          const foundInGroup = group.tris.filter(s => currentFound.has(s));
+          const allFound = foundInGroup.length === group.tris.length;
           return (
-            <div key={size} style={{ marginBottom: 16 }}>
-              <div className="size-group-header">
-                <span className="dot" style={{ background: group.color }} />
-                {isKo ? group.label : group.enLabel} — {foundInGroup.length}/{group.tris.length}
+            <div key={size} style={{ marginBottom: 20 }}>
+              <div className="size-group-header" style={{ color: allFound ? '#5BDB81' : 'var(--text-secondary)' }}>
+                <span className="dot" style={{ background: allFound ? '#5BDB81' : '#444' }} />
+                {isKo ? group.label : group.enLabel} — {foundInGroup.length} / {group.tris.length}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {group.tris.map(tri => (
+                {group.tris.map(k => (
                   <span
-                    key={tri}
+                    key={k}
                     className={`tri-tag size-${size}`}
-                    style={{ opacity: found.has(tri) ? 1 : 0.25 }}
+                    style={{ opacity: currentFound.has(k) ? 1 : 0.15, filter: currentFound.has(k) ? 'none' : 'grayscale(1)' }}
                   >
-                    △{tri}
+                    {puzzle.type === 'triangle' ? '△' : '□'}{k}
                   </span>
                 ))}
               </div>
@@ -324,6 +405,6 @@ export default function GameView({ onBack }) {
           );
         })}
       </div>
-    </motion.div>
+    </div>
   );
 }
