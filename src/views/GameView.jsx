@@ -1,7 +1,8 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 
+/* ── Triangle data ── */
 const ALL_TRIANGLES = [
   "ADE","ADF","BDF","BDG","CDE","CDG","AEX","CEX","AFY","BFY","BGZ","CGZ",
   "ABD","ACD","BCD","ACX","ADX","CDX","ABY","ADY","BDY","BCZ","BDZ","CDZ",
@@ -12,16 +13,15 @@ const ALL_TRIANGLES = [
 ];
 
 const SIZE_GROUPS = {
-  1:  { label: "1칸", tris: ["ADE","ADF","BDF","BDG","CDE","CDG","AEX","CEX","AFY","BFY","BGZ","CGZ"] },
-  2:  { label: "2칸", tris: ["ABD","ACD","BCD","ACX","ADX","CDX","ABY","ADY","BDY","BCZ","BDZ","CDZ"] },
-  3:  { label: "3칸", tris: ["ABE","ABG","ACF","ACG","BCE","BCF"] },
-  4:  { label: "4칸", tris: ["ABX","BCX","DXY","DXZ","ACY","BCY","DYZ","ABZ","ACZ"] },
-  6:  { label: "6칸", tris: ["ABC","BXY","CXY","AXZ","BXZ","AYZ","CYZ"] },
-  12: { label: "전체", tris: ["XYZ"] },
+  1:  { label: "1칸", enLabel: "Tiny",   color: "#5BDB81", tris: ["ADE","ADF","BDF","BDG","CDE","CDG","AEX","CEX","AFY","BFY","BGZ","CGZ"] },
+  2:  { label: "2칸", enLabel: "Small",  color: "#4FE0D9", tris: ["ABD","ACD","BCD","ACX","ADX","CDX","ABY","ADY","BDY","BCZ","BDZ","CDZ"] },
+  3:  { label: "3칸", enLabel: "Medium", color: "#7C5CFC", tris: ["ABE","ABG","ACF","ACG","BCE","BCF"] },
+  4:  { label: "4칸", enLabel: "Large",  color: "#FF8F50", tris: ["ABX","BCX","DXY","DXZ","ACY","BCY","DYZ","ABZ","ACZ"] },
+  6:  { label: "6칸", enLabel: "Huge",   color: "#FF6BB5", tris: ["ABC","BXY","CXY","AXZ","BXZ","AYZ","CYZ"] },
+  12: { label: "전체", enLabel: "Max",    color: "#FFD166", tris: ["XYZ"] },
 };
 
 const LINES = [["X","A","Y"],["X","C","Z"],["Y","B","Z"],["A","E","C"],["X","E","D","B"],["Y","F","D","C"],["A","D","G","Z"],["A","F","B"],["C","G","B"]];
-
 const SC = 120;
 const RP = { X:[0,2], Y:[-2,0], Z:[2,0], A:[-1,1], B:[0,0], C:[1,1], D:[0,2/3], E:[0,1], F:[-0.5,0.5], G:[0.5,0.5] };
 const HR = 28;
@@ -33,20 +33,41 @@ function collinear(a, b, c) {
   return Math.abs((x2 - x1) * (y3 - y1) - (x3 - x1) * (y2 - y1)) < 0.001;
 }
 function sizeOf(n) {
-  for (const [s, g] of Object.entries(SIZE_GROUPS)) {
-    if (g.tris.includes(n)) return +s;
-  }
+  for (const [s, g] of Object.entries(SIZE_GROUPS)) if (g.tris.includes(n)) return +s;
   return 0;
 }
 
-export default function GameView({ onBack }) {
-  const { t } = useTranslation();
-  const [dark, setDark] = useState(() =>
-    typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme:dark)").matches
+/* ── Confetti Effect ── */
+function Confetti({ show }) {
+  if (!show) return null;
+  const colors = ['#7C5CFC','#FF6BB5','#4FE0D9','#FFD166','#FF8F50','#5BDB81'];
+  return (
+    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 10 }}>
+      {Array.from({ length: 24 }).map((_, i) => (
+        <div key={i} style={{
+          position: 'absolute',
+          left: `${Math.random() * 100}%`,
+          top: `${Math.random() * 40}%`,
+          width: 8 + Math.random() * 6,
+          height: 8 + Math.random() * 6,
+          borderRadius: Math.random() > 0.5 ? '50%' : '2px',
+          background: colors[i % colors.length],
+          animation: `confetti-fall ${0.8 + Math.random() * 0.6}s ease-out forwards`,
+          animationDelay: `${Math.random() * 0.3}s`,
+          opacity: 0.9,
+        }} />
+      ))}
+    </div>
   );
+}
+
+export default function GameView({ onBack }) {
+  const { t, i18n } = useTranslation();
+  const isKo = i18n.language === 'ko';
   const [found, setFound] = useState(new Set());
   const [msg, setMsg] = useState({ text: "", type: "idle" });
   const [flash, setFlash] = useState(null);
+  const [showConfetti, setShowConfetti] = useState(false);
 
   const isDragging = useRef(false);
   const dragTrail = useRef([]);
@@ -54,34 +75,29 @@ export default function GameView({ onBack }) {
   const clrR = useRef(null);
   const fRef = useRef(found);
 
-  // Initialize message after mount so i18n is ready
-  useEffect(() => {
-    setMsg({ text: t("msg_idle"), type: "idle" });
-  }, [t]);
-
+  useEffect(() => { setMsg({ text: t("msg_idle"), type: "idle" }); }, [t]);
   useEffect(() => { fRef.current = found; }, [found]);
 
-  useEffect(() => {
-    const m = window.matchMedia("(prefers-color-scheme:dark)");
-    const handler = (e) => setDark(e.matches);
-    m.addEventListener("change", handler);
-    return () => m.removeEventListener("change", handler);
+  /* ── Derived geometry (stable) ── */
+  const OX = 300, OY = 210;
+  const PT = useMemo(() => {
+    const p = {};
+    for (const [k, v] of Object.entries(RP)) p[k] = [OX + v[0] * SC, OY - v[1] * SC];
+    return p;
   }, []);
-
-  // Derived geometry
-  const OX = 300, OY = 200;
-  const PT = {};
-  for (const [k, v] of Object.entries(RP)) PT[k] = [OX + v[0] * SC, OY - v[1] * SC];
-  const PN = Object.keys(PT);
-  const SEG = [];
-  LINES.forEach(l => { for (let i = 0; i < l.length - 1; i++) SEG.push([l[i], l[i + 1]]); });
+  const PN = useMemo(() => Object.keys(PT), [PT]);
+  const SEG = useMemo(() => {
+    const s = [];
+    LINES.forEach(l => { for (let i = 0; i < l.length - 1; i++) s.push([l[i], l[i + 1]]); });
+    return s;
+  }, []);
 
   const hitTest = useCallback((cx, cy) => {
     const svg = svgR.current;
     if (!svg) return null;
     const r = svg.getBoundingClientRect();
     const sx = (cx - r.left) * (600 / r.width);
-    const sy = (cy - r.top) * (400 / r.height);
+    const sy = (cy - r.top) * (420 / r.height);
     let best = null, bd = HR * HR;
     for (const n of PN) {
       const [px, py] = PT[n];
@@ -89,16 +105,17 @@ export default function GameView({ onBack }) {
       if (d < bd) { bd = d; best = n; }
     }
     return best;
-  }, []);
+  }, [PN, PT]);
 
   const doFlash = (tri, type, text) => {
     setFlash(tri);
     setMsg({ text, type });
+    if (type === 'ok') { setShowConfetti(true); setTimeout(() => setShowConfetti(false), 1000); }
     if (clrR.current) clearTimeout(clrR.current);
     clrR.current = setTimeout(() => {
       setFlash(null);
       setMsg(p => p.type === "done" ? p : { text: t("msg_idle"), type: "idle" });
-    }, 600);
+    }, 800);
   };
 
   const submit = useCallback((pts) => {
@@ -107,23 +124,20 @@ export default function GameView({ onBack }) {
     if (collinear(pts[0], pts[1], pts[2])) { doFlash(k, "error", t("msg_collinear")); return; }
     if (!onLine(pts[0], pts[1]) || !onLine(pts[1], pts[2]) || !onLine(pts[0], pts[2])) { doFlash(k, "error", t("msg_invalid")); return; }
     if (!ALL_TRIANGLES.includes(k)) { doFlash(k, "error", t("msg_invalid")); return; }
-
     const nf = new Set(fRef.current);
-    if (nf.has(k)) { doFlash(k, "dup", "이미 찾았습니다!"); return; }
-
+    if (nf.has(k)) { doFlash(k, "dup", isKo ? "이미 찾았어요! 😅" : "Already found! 😅"); return; }
     nf.add(k);
     setFound(nf);
     const sl = SIZE_GROUPS[sizeOf(k)]?.label || "";
     if (nf.size === ALL_TRIANGLES.length) doFlash(k, "done", t("msg_done"));
-    else doFlash(k, "ok", `✓ △${k} (${sl}) — ${nf.size}/${ALL_TRIANGLES.length}`);
-  }, [t]);
+    else doFlash(k, "ok", `✨ △${k} (${sl}) — ${nf.size}/${ALL_TRIANGLES.length}`);
+  }, [t, isKo]);
 
   function simplifyPath(arr) {
     const distinct = [];
     for (const p of arr) { if (distinct[distinct.length - 1] !== p) distinct.push(p); }
     if (distinct.length < 3) return distinct;
-    let res = [...distinct];
-    let changed = true;
+    let res = [...distinct], changed = true;
     while (changed && res.length > 2) {
       changed = false;
       for (let i = 1; i < res.length - 1; i++) {
@@ -141,14 +155,12 @@ export default function GameView({ onBack }) {
     isDragging.current = true;
     dragTrail.current = [p];
   };
-
   const onPointerMove = (e) => {
     if (!isDragging.current) return;
     const p = hitTest(e.clientX, e.clientY);
     if (!p || dragTrail.current[dragTrail.current.length - 1] === p) return;
     dragTrail.current.push(p);
   };
-
   const onPointerUp = () => {
     if (!isDragging.current) return;
     isDragging.current = false;
@@ -157,7 +169,7 @@ export default function GameView({ onBack }) {
     const simple = simplifyPath(trail);
     if (simple.length === 3) submit(simple);
     else if (simple.length > 0) {
-      setMsg({ text: `${simple.join(", ")} — ${3 - simple.length}개 더!`, type: "idle" });
+      setMsg({ text: `${simple.join(" → ")} ... ${isKo ? `${3 - simple.length}개 더!` : `${3 - simple.length} more!`}`, type: "idle" });
     }
   };
 
@@ -167,80 +179,151 @@ export default function GameView({ onBack }) {
     return `M${PT[a][0]},${PT[a][1]}L${PT[b][0]},${PT[b][1]}L${PT[c][0]},${PT[c][1]}Z`;
   };
 
-  const K = {
-    bg: dark ? "#1c1c20" : "#faf9f7",
-    tx2: dark ? "#9a988f" : "#888",
-    ln: dark ? "#555560" : "#bbb8b0",
-    ac: dark ? "#AFA9EC" : "#534AB7",
-  };
-
   const msgTheme = {
-    ok:    { bg: dark ? "#0a3020" : "#e8f5e9", c: dark ? "#5DCAA5" : "#0F6E56" },
-    error: { bg: dark ? "#3a1515" : "#fde8e8", c: dark ? "#F09595" : "#c0392b" },
-    dup:   { bg: dark ? "#3a3015" : "#fff8e1", c: dark ? "#EF9F27" : "#854F0B" },
-    done:  { bg: dark ? "#26215C" : "#ede7f6", c: dark ? "#AFA9EC" : "#534AB7" },
-    idle:  { bg: dark ? "#28282e" : "#f0eeea", c: K.tx2 },
+    ok:    { bg: 'rgba(91,219,129,0.15)', border: 'rgba(91,219,129,0.3)', c: '#5BDB81', icon: '✅' },
+    error: { bg: 'rgba(255,107,107,0.15)', border: 'rgba(255,107,107,0.3)', c: '#FF6B6B', icon: '❌' },
+    dup:   { bg: 'rgba(255,209,102,0.15)', border: 'rgba(255,209,102,0.3)', c: '#FFD166', icon: '🔄' },
+    done:  { bg: 'rgba(124,92,252,0.15)', border: 'rgba(124,92,252,0.3)', c: '#B8A8FF', icon: '🎉' },
+    idle:  { bg: 'rgba(255,255,255,0.05)', border: 'rgba(255,255,255,0.08)', c: '#8B8FA8', icon: '👆' },
   };
   const mc = msgTheme[msg.type] || msgTheme.idle;
 
   return (
-    <div className="flex flex-col gap-4 p-4">
-      <div className="flex justify-between items-center mb-2">
-        <button onClick={onBack} className="text-sm font-bold opacity-60 hover:opacity-100 flex items-center gap-1">
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+      style={{ display: 'flex', flexDirection: 'column', gap: 20 }}
+    >
+      {/* Top Bar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <button className="btn-ghost" onClick={onBack} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           ← {t("back_to_map")}
         </button>
-        <div className="text-sm font-bold text-[#534AB7] dark:text-[#AFA9EC]">
-          {found.size} / {ALL_TRIANGLES.length}
+        <div style={{
+          background: 'rgba(124,92,252,0.12)', border: '1px solid rgba(124,92,252,0.25)',
+          borderRadius: 12, padding: '6px 16px',
+          fontSize: 14, fontWeight: 800, color: '#B8A8FF',
+        }}>
+          🔺 {found.size} / {ALL_TRIANGLES.length}
         </div>
       </div>
 
-      <div className="w-full bg-gray-200 dark:bg-gray-800 rounded-full h-2 overflow-hidden shadow-inner">
+      {/* Progress */}
+      <div className="progress-bar">
         <motion.div
+          className="progress-fill"
           initial={{ width: 0 }}
           animate={{ width: `${progress}%` }}
-          className="h-full bg-gradient-to-r from-[#534AB7] to-[#D4537E]"
+          transition={{ type: 'spring', damping: 25 }}
         />
       </div>
 
-      <div className="bg-white dark:bg-black/20 rounded-3xl border border-gray-200 dark:border-white/10 overflow-hidden touch-none shadow-xl">
-        <svg ref={svgR} viewBox="0 0 600 400" className="w-full h-auto cursor-crosshair"
+      {/* Game Board */}
+      <div className="game-board" style={{ position: 'relative', touchAction: 'none' }}>
+        <Confetti show={showConfetti} />
+        <svg ref={svgR} viewBox="0 0 600 420" style={{ width: '100%', height: 'auto', cursor: 'crosshair', display: 'block' }}
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
-          {[...found].map(tri => (
-            <path key={tri} d={triPath(tri)} fill={K.ac} opacity={dark ? 0.15 : 0.08} />
-          ))}
+
+          {/* Grid glow background */}
+          <defs>
+            <radialGradient id="boardGlow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="rgba(124,92,252,0.08)" />
+              <stop offset="100%" stopColor="transparent" />
+            </radialGradient>
+          </defs>
+          <rect width="600" height="420" fill="url(#boardGlow)" />
+
+          {/* Found triangle fills */}
+          {[...found].map(tri => {
+            const sz = sizeOf(tri);
+            const col = SIZE_GROUPS[sz]?.color || '#7C5CFC';
+            return <path key={tri} d={triPath(tri)} fill={col} opacity={0.12} />;
+          })}
+
+          {/* Lines */}
           {SEG.map(([a, b], i) => (
             <line key={i} x1={PT[a][0]} y1={PT[a][1]} x2={PT[b][0]} y2={PT[b][1]}
-              stroke={K.ln} strokeWidth={1.5} opacity={0.6} />
+              stroke="rgba(255,255,255,0.12)" strokeWidth={1.5} />
           ))}
-          {flash && <path d={triPath(flash)} fill={K.ac} opacity={0.4} stroke={K.ac} strokeWidth={2} />}
+
+          {/* Flash highlight */}
+          <AnimatePresence>
+            {flash && (
+              <motion.path
+                key="flash"
+                d={triPath(flash)}
+                fill={mc.c}
+                opacity={0.35}
+                stroke={mc.c}
+                strokeWidth={2.5}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 0.35 }}
+                exit={{ opacity: 0 }}
+              />
+            )}
+          </AnimatePresence>
+
+          {/* Points */}
           {PN.map(name => {
             const [cx, cy] = PT[name];
             return (
               <g key={name}>
-                <circle cx={cx} cy={cy} r={6} fill={K.bg} stroke={K.ln} strokeWidth={2} />
-                <text x={cx} y={cy - 12} textAnchor="middle" fontSize={12} fontWeight="bold" fill={K.tx2}>{name}</text>
+                <circle cx={cx} cy={cy} r={8} fill="var(--bg-primary)" stroke="rgba(255,255,255,0.2)" strokeWidth={2} />
+                <circle cx={cx} cy={cy} r={4} fill="#7C5CFC" opacity={0.6} />
+                <text x={cx} y={cy - 14} textAnchor="middle" fontSize={12} fontWeight="800"
+                  fill="rgba(255,255,255,0.5)" fontFamily="Outfit, sans-serif">{name}</text>
               </g>
             );
           })}
         </svg>
       </div>
 
-      <div className="text-center">
-        <span style={{ backgroundColor: mc.bg, color: mc.c }} className="inline-block px-6 py-2 rounded-full text-sm font-bold shadow-sm">
-          {msg.text}
-        </span>
+      {/* Message */}
+      <div style={{ textAlign: 'center' }}>
+        <AnimatePresence mode="wait">
+          <motion.span
+            key={msg.text}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="msg-pill"
+            style={{
+              background: mc.bg,
+              border: `1px solid ${mc.border}`,
+              color: mc.c,
+            }}
+          >
+            {mc.icon} {msg.text}
+          </motion.span>
+        </AnimatePresence>
       </div>
 
-      <div className="mt-8">
-        <h4 className="text-xs font-bold opacity-40 mb-3 uppercase tracking-widest">{t("found")}</h4>
-        <div className="flex flex-wrap gap-2">
-          {[...found].map(tri => (
-            <span key={tri} className="text-[10px] font-mono font-bold bg-white/10 px-2 py-1 rounded-md border border-white/5">
-              △{tri}
-            </span>
-          ))}
-        </div>
+      {/* Found Triangles by Size Group */}
+      <div style={{ marginTop: 16 }}>
+        {Object.entries(SIZE_GROUPS).map(([size, group]) => {
+          const foundInGroup = group.tris.filter(tri => found.has(tri));
+          return (
+            <div key={size} style={{ marginBottom: 16 }}>
+              <div className="size-group-header">
+                <span className="dot" style={{ background: group.color }} />
+                {isKo ? group.label : group.enLabel} — {foundInGroup.length}/{group.tris.length}
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {group.tris.map(tri => (
+                  <span
+                    key={tri}
+                    className={`tri-tag size-${size}`}
+                    style={{ opacity: found.has(tri) ? 1 : 0.25 }}
+                  >
+                    △{tri}
+                  </span>
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </div>
-    </div>
+    </motion.div>
   );
 }
