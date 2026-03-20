@@ -22,22 +22,35 @@ function collinear(a, b, c, points) {
 
 /* ── Confetti Component ── */
 function Confetti({ show }) {
+  const pieces = useMemo(() => {
+    return Array.from({ length: 40 }).map((_, i) => ({
+      id: i,
+      x: `${Math.random() * 100}%`,
+      size: 8 + Math.random() * 8,
+      duration: 1.2 + Math.random() * 0.8,
+      delay: Math.random() * 0.5,
+      rotate: Math.random() * 360,
+      isRound: Math.random() > 0.5
+    }));
+  }, []);
+
   if (!show) return null;
   const colors = ['#7C5CFC','#FF6BB5','#4FE0D9','#FFD166','#FF8F50','#5BDB81'];
+  
   return (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 10 }}>
-      {Array.from({ length: 40 }).map((_, i) => (
+      {pieces.map((p) => (
         <motion.div 
-          key={i}
-          initial={{ y: -20, x: `${Math.random() * 100}%`, opacity: 1, rotate: 0 }}
-          animate={{ y: 500, rotate: 360, opacity: 0 }}
-          transition={{ duration: 1.5 + Math.random(), ease: "easeOut" }}
+          key={p.id}
+          initial={{ y: -20, x: p.x, opacity: 1, rotate: 0 }}
+          animate={{ y: 500, rotate: p.rotate + 360, opacity: 0 }}
+          transition={{ duration: p.duration, delay: p.delay, ease: "easeOut" }}
           style={{
             position: 'absolute',
-            width: 8 + Math.random() * 8,
-            height: 8 + Math.random() * 8,
-            borderRadius: Math.random() > 0.5 ? '50%' : '2px',
-            background: colors[i % colors.length],
+            width: p.size,
+            height: p.size,
+            borderRadius: p.isRound ? '50%' : '2px',
+            background: colors[p.id % colors.length],
             zIndex: 10
           }} 
         />
@@ -93,16 +106,25 @@ export default function GameView({ onBack, worldId = 1 }) {
   const [flash, setFlash] = useState(null);
   const [showConfetti, setShowConfetti] = useState(false);
   const [isWin, setIsWin] = useState(false);
+  const [activePoints, setActivePoints] = useState([]);
 
   const isDragging = useRef(false);
-  const dragTrail = useRef([]);
   const svgR = useRef(null);
   const clrR = useRef(null);
 
+  // Initialize message
   useEffect(() => { 
     setMsg({ text: t("msg_idle"), type: "idle" });
-    setIsWin(currentFound.size === puzzle.solutions.length && puzzle.solutions.length > 0);
-  }, [t, worldId, currentFound.size, puzzle.solutions.length]);
+  }, [t]);
+
+  // Handle Win Condition
+  useEffect(() => {
+    if (puzzle.solutions.length > 0 && currentFound.size === puzzle.solutions.length) {
+      setIsWin(true);
+    } else {
+      setIsWin(false);
+    }
+  }, [currentFound.size, puzzle.solutions.length]);
 
   const OX = 300, OY = 210, SC = 140;
   const PT = useMemo(() => {
@@ -133,7 +155,7 @@ export default function GameView({ onBack, worldId = 1 }) {
     return best;
   }, [PN, PT]);
 
-  const doFlash = (tri, type, text) => {
+  const doFlash = useCallback((tri, type, text) => {
     setFlash(tri);
     setMsg({ text, type });
     
@@ -153,9 +175,9 @@ export default function GameView({ onBack, worldId = 1 }) {
       setFlash(null);
       setMsg(p => p.type === "done" ? p : { text: t("msg_idle"), type: "idle" });
     }, 1200);
-  };
+  }, [t]);
 
-  const onLine = (a, b) => puzzle.lines.some(l => l.includes(a) && l.includes(b));
+  const onLine = useCallback((a, b) => puzzle.lines.some(l => l.includes(a) && l.includes(b)), [puzzle.lines]);
 
   const submit = useCallback((pts) => {
     const k = normalize(pts);
@@ -190,9 +212,9 @@ export default function GameView({ onBack, worldId = 1 }) {
 
     if (currentFound.size + 1 === puzzle.solutions.length) doFlash(k, "done", t("msg_done"));
     else doFlash(k, "ok", `🎨 ${puzzle.type === 'triangle' ? '△' : '□'}${k} (${sl}) — ${currentFound.size + 1}/${puzzle.solutions.length}`);
-  }, [t, isKo, puzzle, currentFound, addFoundShape, worldId]);
+  }, [t, isKo, puzzle, currentFound, addFoundShape, worldId, doFlash, onLine]);
 
-  function simplifyPath(arr) {
+  const simplifyPath = useCallback((arr) => {
     const distinct = [];
     for (const p of arr) { if (distinct[distinct.length - 1] !== p) distinct.push(p); }
     const targetLength = puzzle.type === 'triangle' ? 3 : 4;
@@ -206,7 +228,7 @@ export default function GameView({ onBack, worldId = 1 }) {
     }
     if (res.length > targetLength && res[0] === res[res.length - 1]) res.pop();
     return res;
-  }
+  }, [puzzle]);
 
   const onPointerDown = (e) => {
     const p = hitTest(e.clientX, e.clientY);
@@ -214,22 +236,25 @@ export default function GameView({ onBack, worldId = 1 }) {
     SFX.pop.play();
     e.currentTarget.setPointerCapture(e.pointerId);
     isDragging.current = true;
-    dragTrail.current = [p];
+    setActivePoints([p]);
   };
 
   const onPointerMove = (e) => {
     if (!isDragging.current) return;
     const p = hitTest(e.clientX, e.clientY);
-    if (!p || dragTrail.current[dragTrail.current.length - 1] === p) return;
-    SFX.pop.play();
-    dragTrail.current.push(p);
+    if (!p) return;
+    setActivePoints(prev => {
+        if (prev[prev.length - 1] === p) return prev;
+        SFX.pop.play();
+        return [...prev, p];
+    });
   };
 
   const onPointerUp = () => {
     if (!isDragging.current) return;
     isDragging.current = false;
-    const trail = dragTrail.current;
-    dragTrail.current = [];
+    const trail = [...activePoints];
+    setActivePoints([]);
     const simple = simplifyPath(trail);
     const targetLen = puzzle.type === 'triangle' ? 3 : 4;
     if (simple.length === targetLen) submit(simple);
@@ -243,8 +268,12 @@ export default function GameView({ onBack, worldId = 1 }) {
   
   const shapePath = (k) => {
     const pts = [...k];
+    if (!PT[pts[0]]) return "";
     let d = `M${PT[pts[0]][0]},${PT[pts[0]][1]}`;
-    for (let i = 1; i < pts.length; i++) d += `L${PT[pts[i]][0]},${PT[pts[i]][1]}`;
+    for (let i = 1; i < pts.length; i++) {
+        if (!PT[pts[i]]) continue;
+        d += `L${PT[pts[i]][0]},${PT[pts[i]][1]}`;
+    }
     return d + 'Z';
   };
 
@@ -320,9 +349,9 @@ export default function GameView({ onBack, worldId = 1 }) {
           ))}
 
           {/* Drag Trail */}
-          {isDragging.current && dragTrail.current.length > 1 && (
+          {activePoints.length > 1 && (
              <path 
-               d={`M${dragTrail.current.map(p => `${PT[p][0]},${PT[p][1]}`).join('L')}`}
+               d={`M${activePoints.map(p => PT[p] ? `${PT[p][0]},${PT[p][1]}` : "").join('L')}`}
                fill="none" stroke="#4FE0D9" strokeWidth={3} strokeDasharray="6,6" opacity={0.5}
              />
           )}
@@ -347,7 +376,7 @@ export default function GameView({ onBack, worldId = 1 }) {
           {/* Points */}
           {PN.map(name => {
             const [cx, cy] = PT[name];
-            const active = dragTrail.current.includes(name);
+            const active = activePoints.includes(name);
             return (
               <g key={name} style={{ cursor: 'pointer' }}>
                 <circle cx={cx} cy={cy} r={active ? 12 : 8} fill="var(--bg-primary)" stroke={active ? "#4FE0D9" : "rgba(255,255,255,0.2)"} strokeWidth={2} />
