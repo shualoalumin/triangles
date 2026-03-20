@@ -22,8 +22,8 @@ function collinear(a, b, c, points) {
 
 /* ── Confetti Component ── */
 function Confetti({ show }) {
-  const pieces = useMemo(() => {
-    return Array.from({ length: 40 }).map((_, i) => ({
+  const [pieces] = useState(() => 
+    Array.from({ length: 40 }).map((_, i) => ({
       id: i,
       x: `${Math.random() * 100}%`,
       size: 8 + Math.random() * 8,
@@ -31,8 +31,8 @@ function Confetti({ show }) {
       delay: Math.random() * 0.5,
       rotate: Math.random() * 360,
       isRound: Math.random() > 0.5
-    }));
-  }, []);
+    }))
+  );
 
   if (!show) return null;
   const colors = ['#7C5CFC','#FF6BB5','#4FE0D9','#FFD166','#FF8F50','#5BDB81'];
@@ -114,15 +114,17 @@ export default function GameView({ onBack, worldId = 1 }) {
 
   // Initialize message
   useEffect(() => { 
-    setMsg({ text: t("msg_idle"), type: "idle" });
+    setTimeout(() => {
+      setMsg(prev => prev.type === "idle" ? { text: t("msg_idle"), type: "idle" } : prev);
+    }, 0);
   }, [t]);
 
   // Handle Win Condition
   useEffect(() => {
     if (puzzle.solutions.length > 0 && currentFound.size === puzzle.solutions.length) {
-      setIsWin(true);
+      setTimeout(() => setIsWin(true), 0);
     } else {
-      setIsWin(false);
+      setTimeout(() => setIsWin(false), 0);
     }
   }, [currentFound.size, puzzle.solutions.length]);
 

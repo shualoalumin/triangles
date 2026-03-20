@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useGameStore } from '../store/useGameStore';
 
 const PremiumModal = ({ isOpen, onClose }) => {
-  const { t, i18n } = useTranslation();
+  const { i18n } = useTranslation();
   const { unlockPremium } = useGameStore();
   const isKo = i18n.language === 'ko';
 
